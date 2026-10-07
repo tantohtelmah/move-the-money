@@ -240,4 +240,24 @@ class TransferServiceTest {
                 totalReceived.compareTo(new BigDecimal("80.00"))
         );
     }
+
+    @Test
+    void transferRejectsMoreThanTwoDecimalPlaces() {
+
+        Account sender =
+                accountService.openAccount(new BigDecimal("100.00"));
+
+        Account receiver =
+                accountService.openAccount(new BigDecimal("0.00"));
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> transferService.transfer(
+                        sender.getId(),
+                        receiver.getId(),
+                        new BigDecimal("10.123"),
+                        "precision-test"
+                )
+        );
+    }
 }

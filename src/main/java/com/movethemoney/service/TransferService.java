@@ -45,6 +45,11 @@ public class TransferService {
         if (fromAccountId.equals(toAccountId)) {
             throw new IllegalArgumentException("Cannot transfer to the same account");
         }
+        if (amount.scale() > 2) {
+            throw new IllegalArgumentException(
+                    "Transfer amount cannot have more than 2 decimal places"
+            );
+        }
 
         // 3. Lock accounts in consistent order
         Long firstId = Math.min(fromAccountId, toAccountId);// Math.min(1, 2) → 1
