@@ -194,3 +194,4 @@ Given more time, I would:
 4. Improve database configuration using environment variables.
 5. Add additional concurrent idempotency tests.
 6. Add containerized PostgreSQL integration testing for reproducible test environments.
+7. add filter transaction history by date
