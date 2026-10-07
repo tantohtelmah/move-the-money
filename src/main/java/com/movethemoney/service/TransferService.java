@@ -6,6 +6,7 @@ import com.movethemoney.repository.AccountRepository;
 import com.movethemoney.repository.TransferRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import java.util.List;
 
 import java.math.BigDecimal;
 import java.util.Optional;
@@ -81,5 +82,18 @@ public class TransferService {
                 amount);
 
         return transferRepository.save(transfer);
+    }
+
+    public List<Transfer> getTransactionHistory(Long accountId) {
+
+        if (!accountRepository.existsById(accountId)) {
+            throw new IllegalArgumentException("Account not found");
+        }
+
+        return transferRepository
+                .findByFromAccount_IdOrToAccount_IdOrderByCreatedAtDesc(
+                        accountId,
+                        accountId
+                );
     }
 }
