@@ -14,6 +14,9 @@ public class Account {
     @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal balance;
 
+    @Column(nullable = false)
+    private boolean ledgerInitialized;
+
     protected Account() {
     }
 
@@ -29,8 +32,16 @@ public class Account {
         return balance;
     }
 
+    public boolean isLedgerInitialized() {
+        return ledgerInitialized;
+    }
+
     public void setBalance(BigDecimal balance) {
         this.balance = balance;
+    }
+
+    public void markLedgerInitialized() {
+        this.ledgerInitialized = true;
     }
     // Not doing setBalance because we don't want to allow arbitrary balance changes. 
     // Instead, we will have methods for deposit and withdraw that will handle the balance 

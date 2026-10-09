@@ -128,6 +128,72 @@ Returns transfers where the account was either the sender or receiver, ordered w
 ### Prerequisites
 
 Install:
+
+- Java 21
+- PostgreSQL
+
+Verify Java:
+
+```bash
+java -version
+```
+
+Start PostgreSQL:
+
+```bash
+sudo service postgresql start
+```
+
+Create the database:
+
+```sql
+CREATE DATABASE move_the_money;
+```
+
+The default local configuration expects:
+
+```text
+Database: move_the_money
+Username: postgres
+Password: postgres
+```
+
+Then start the application:
+
+```bash
+./mvnw spring-boot:run
+```
+
+The API runs at:
+
+```text
+http://localhost:8080
+```
+
+## Running the Tests
+
+Run:
+
+```bash
+./mvnw test
+```
+
+The automated tests cover:
+
+- successful transfers
+- insufficient funds
+- atomic failure without partial balance changes
+- duplicate/idempotent transfers
+- monetary precision validation
+- concurrent transfers competing for the same balance
+
+
+
+## Running the Application
+
+### Prerequisites
+
+Install:
 - Java 21
 - PostgreSQL
 
@@ -165,7 +231,47 @@ The automated tests cover:
 - duplicate/idempotent transfers
 - monetary precision validation
 - concurrent transfers competing for the same balance
+- balanced transfer/opening ledger entries
+- reconciliation success, mismatch, and legacy-account handling
+- rollback on ledger posting failure and concurrent idempotent retries
 
+Tests use an isolated PostgreSQL Testcontainer; Docker must be available when running
+`./mvnw test`.
+
+## Ledger and Reconciliation
+
+Transfers post two immutable ledger entries in the same database transaction as the
+transfer record and account balance updates: a debit to the source account and an
+equal credit to the destination. Opening balances use a matching customer credit
+and opening-equity debit. Customer balances are reconstructed as credits minus
+debits; the `accounts.balance` column is retained as a fast, locked balance cache.
+Transfers recalculate both locked accounts from the ledger before posting and stop
+if either cached balance disagrees.
+
+Verify a balance with:
+
+```http
+GET /accounts/{id}/reconciliation
+```
+
+The response includes only the account ID, stored balance, reconstructed ledger
+balance, difference, and a status. `LEDGER_NOT_INITIALIZED` means the account
+predates ledger posting; it is deliberately not reported as reconciled. Transfers
+involving such accounts are blocked until a separately verified cutover initializes
+their ledger. The additive migration preserves existing accounts and transfers and
+does not fabricate historical entries.
+
+Flyway migrations provide the schema (`V1` is the baseline for a fresh database;
+existing non-empty schemas are baselined at version 1 and receive the additive
+ledger migration). Tests run against an ephemeral PostgreSQL Testcontainer and do
+not clear or connect to the configured development database.
+
+Ledger entries have no application delete operation or mutable setters, and JPA
+callbacks reject updates/deletes. Production deployments should additionally run
+with a least-privilege database role that cannot update or delete ledger rows, and
+enforce append-only behavior with database permissions and/or triggers. Reconciliation
+is an operational check, not a substitute for access control or a verified legacy
+data cutover.
 
 ## Deliberate Scope Decisions
 

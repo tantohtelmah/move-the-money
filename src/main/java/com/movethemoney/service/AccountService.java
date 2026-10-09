@@ -3,6 +3,7 @@ package com.movethemoney.service;
 import com.movethemoney.model.Account;
 import com.movethemoney.repository.AccountRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 
@@ -10,19 +11,26 @@ import java.math.BigDecimal;
 public class AccountService {
 
     private final AccountRepository accountRepository;
+    private final LedgerPostingService ledgerPostingService;
 
-    public AccountService(AccountRepository accountRepository) {
+    public AccountService(AccountRepository accountRepository, LedgerPostingService ledgerPostingService) {
         this.accountRepository = accountRepository;
+        this.ledgerPostingService = ledgerPostingService;
     }
 
+    @Transactional
     public Account openAccount(BigDecimal startingBalance) {
-        // Validate the starting balance to ensure it is not negative
-        if (startingBalance == null || startingBalance.compareTo(BigDecimal.ZERO) < 0) {
-            throw new IllegalArgumentException("Starting balance cannot be negative");
+        if (startingBalance == null || startingBalance.signum() < 0
+                || startingBalance.scale() > 2 || startingBalance.precision() > 19
+                || startingBalance.precision() - startingBalance.scale() > 17) {
+            throw new IllegalArgumentException("Starting balance must be non-negative and fit NUMERIC(19, 2)");
         }
 
         Account account = new Account(startingBalance);
-        return accountRepository.save(account); //this creates jva Account, save and insert into PostgreSQL
+        accountRepository.save(account);
+        ledgerPostingService.postOpeningBalance(account, startingBalance);
+        account.markLedgerInitialized();
+        return account;
     }
 
     public Account getAccount(Long id) {

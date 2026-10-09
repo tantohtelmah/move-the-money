@@ -16,10 +16,18 @@ public class TransferService {
 
     private final AccountRepository accountRepository;
     private final TransferRepository transferRepository;
+    private final LedgerPostingService ledgerPostingService;
+    private final ReconciliationService reconciliationService;
 
-    public TransferService(AccountRepository accountRepository, TransferRepository transferRepository) {
+    public TransferService(
+            AccountRepository accountRepository,
+            TransferRepository transferRepository,
+            LedgerPostingService ledgerPostingService,
+            ReconciliationService reconciliationService) {
         this.accountRepository = accountRepository;
         this.transferRepository = transferRepository;
+        this.ledgerPostingService = ledgerPostingService;
+        this.reconciliationService = reconciliationService;
     }
 
     @Transactional //this annotation indicates that the method should be executed within a transaction, ensuring that all database operations are atomic and consistent
@@ -29,7 +37,11 @@ public class TransferService {
             BigDecimal amount,
             String idempotencyKey) {
 
-        // 1. Check whether this transfer was already processed
+        if (fromAccountId == null || toAccountId == null
+                || idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new IllegalArgumentException("Account IDs and idempotency key are required");
+        }
+
         Optional<Transfer> existing =
                 transferRepository.findByIdempotencyKey(idempotencyKey);
 
@@ -38,20 +50,16 @@ public class TransferService {
         }
 
         // 2. Validate request
-        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("Transfer amount must be positive");
+        if (amount == null || amount.signum() <= 0
+                || amount.scale() > 2 || amount.precision() > 19
+                || amount.precision() - amount.scale() > 17) {
+            throw new IllegalArgumentException("Transfer amount must be positive and fit NUMERIC(19, 2)");
         }
 
         if (fromAccountId.equals(toAccountId)) {
             throw new IllegalArgumentException("Cannot transfer to the same account");
         }
-        if (amount.scale() > 2) {
-            throw new IllegalArgumentException(
-                    "Transfer amount cannot have more than 2 decimal places"
-            );
-        }
-
-        // 3. Lock accounts in consistent order
+        // Lock in a stable order to avoid deadlocks between opposite-direction transfers.
         Long firstId = Math.min(fromAccountId, toAccountId);// Math.min(1, 2) → 1
         Long secondId = Math.max(fromAccountId, toAccountId); // Math.min(1, 2) → 2
 
@@ -61,32 +69,45 @@ public class TransferService {
         Account second = accountRepository.findByIdForUpdate(secondId)
                 .orElseThrow(() -> new IllegalArgumentException("Account not found"));
 
+        existing = transferRepository.findByIdempotencyKey(idempotencyKey);
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+
         Account fromAccount =
                 fromAccountId.equals(first.getId()) ? first : second; // Determine which account is the source of the transfer based on the provided IDs
 
         Account toAccount =
                 toAccountId.equals(first.getId()) ? first : second;
 
-        // 4. Check funds AFTER obtaining the lock
-        if (fromAccount.getBalance().compareTo(amount) < 0) {
+        if (!fromAccount.isLedgerInitialized() || !toAccount.isLedgerInitialized()) {
+            throw new IllegalStateException("Both accounts require verified ledger initialization before transfers");
+        }
+
+        BigDecimal fromLedgerBalance = reconciliationService.calculateLedgerBalance(fromAccountId);
+        BigDecimal toLedgerBalance = reconciliationService.calculateLedgerBalance(toAccountId);
+        if (fromAccount.getBalance().compareTo(fromLedgerBalance) != 0
+                || toAccount.getBalance().compareTo(toLedgerBalance) != 0) {
+            throw new IllegalStateException("Account balance does not match its ledger; reconcile before transferring");
+        }
+
+        if (fromLedgerBalance.compareTo(amount) < 0) {
             throw new IllegalArgumentException("Insufficient funds");
         }
 
-        // 5. Move the money
-        fromAccount.setBalance(
-                fromAccount.getBalance().subtract(amount));
+        fromAccount.setBalance(fromLedgerBalance.subtract(amount));
 
-        toAccount.setBalance(
-                toAccount.getBalance().add(amount));
+        toAccount.setBalance(toLedgerBalance.add(amount));
 
-        // 6. Record the transfer
         Transfer transfer = new Transfer(
                 idempotencyKey,
                 fromAccount,
                 toAccount,
                 amount);
 
-        return transferRepository.save(transfer);
+        transferRepository.saveAndFlush(transfer);
+        ledgerPostingService.postTransfer(transfer);
+        return transfer;
     }
 
     public List<Transfer> getTransactionHistory(Long accountId) {
@@ -101,4 +122,5 @@ public class TransferService {
                         accountId
                 );
     }
+
 }

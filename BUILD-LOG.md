@@ -127,3 +127,21 @@ The main areas I would improve with more time are:
 The main lesson from the exercise was that the difficult part of moving money is not subtracting from one balance and adding to another. The difficult part is preserving the invariants when requests fail, repeat, or happen concurrently.
 
 Given the time constraint, I prioritized database transactions, locking, idempotency, exact monetary representation, and tests over additional features.
+
+## Double-Entry Ledger Extension
+
+The transfer workflow now writes two equal ledger lines (source debit and
+destination credit) in the same transaction as the transfer and cached account
+balance updates. Positive opening balances are posted as a customer credit matched
+by an opening-equity debit. Ledger writes validate two-line balance and use database
+uniqueness constraints to prevent duplicate lines; entity callbacks and a
+read-oriented repository prevent application-level mutation/deletion.
+
+`GET /accounts/{id}/reconciliation` independently totals customer credits minus
+debits and compares that value with the stored balance. Transfers derive available
+balances from the ledger while holding the existing account locks and reject a
+transfer if a cached balance disagrees. Additive Flyway migrations
+preserve existing data and explicitly leave pre-ledger accounts uninitialized;
+they are reported as not reconciled and cannot transfer until a verified cutover
+has been performed. PostgreSQL integration tests use an ephemeral Testcontainer,
+never the configured development database.

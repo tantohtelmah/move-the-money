@@ -1,8 +1,10 @@
 package com.movethemoney.controller;
 
 import com.movethemoney.dto.CreateAccountRequest;
+import com.movethemoney.dto.AccountReconciliationResult;
 import com.movethemoney.model.Account;
 import com.movethemoney.service.AccountService;
+import com.movethemoney.service.ReconciliationService;
 import com.movethemoney.service.TransferService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -16,10 +18,15 @@ public class AccountController {
 
     private final AccountService accountService;
     private final TransferService transferService;
+    private final ReconciliationService reconciliationService;
 
-    public AccountController(AccountService accountService, TransferService transferService) {
+    public AccountController(
+            AccountService accountService,
+            TransferService transferService,
+            ReconciliationService reconciliationService) {
         this.accountService = accountService;
         this.transferService = transferService;
+        this.reconciliationService = reconciliationService;
     }
 
     @PostMapping //this method handles HTTP POST requests to create a new account
@@ -36,5 +43,10 @@ public class AccountController {
     @GetMapping("/{id}/transactions")
     public List<Transfer> getTransactionHistory(@PathVariable Long id) {
         return transferService.getTransactionHistory(id);
+    }
+
+    @GetMapping("/{id}/reconciliation")
+    public AccountReconciliationResult reconcile(@PathVariable Long id) {
+        return reconciliationService.reconcile(id);
     }
 }
